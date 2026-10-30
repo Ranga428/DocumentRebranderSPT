@@ -1,0 +1,14 @@
+[theme]
+# Neon Lime Green for primary buttons, sliders, and active states
+primaryColor = "#A3E635"
+
+# Ultra-dark cyber green canvas background
+backgroundColor = "#021B0E"
+
+# Muted dark forest-green for sidebars, cards, and input fields
+secondaryBackgroundColor = "#0C331B"
+
+# Crisp off-white text for readability
+textColor = "#F1F5F9"
+
+font = "sans serif"
