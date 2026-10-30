@@ -1,10 +1,24 @@
+import base64
 import io
 import fitz
 import streamlit as st
 import converter as c
 
-st.set_page_config(page_title="VAPT Report Converter", page_icon="📄", layout="wide")
-st.title("📄 VAPT Report Converter")
+st.set_page_config(page_title="VAPT Report Converter", page_icon="SapientLogoNoText.png", layout="wide")
+with open("SapientLogoNoText.png", "rb") as logo_file:
+    logo_data = base64.b64encode(logo_file.read()).decode("ascii")
+st.markdown(
+    f"""
+    <div style="display: flex; align-items: center; gap: 1rem;">
+        <img src="data:image/png;base64,{logo_data}"
+             alt="Sapient logo" style="display: block; width: 48px; height: 48px;">
+        <h1 style="margin: 0; font-size: 2.75rem; line-height: 1.1;">
+            VAPT Report Converter
+        </h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 st.write("Upload the original report (PDF) and your template (the converted .docx). "
          "The app extracts the report data, applies your rewrite rules, and fills the template.")
 
