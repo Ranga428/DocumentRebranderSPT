@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    mem_limit: 4g
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g
+    environment:
+      HOME: /tmp
+      STREAMLIT_SERVER_MAX_UPLOAD_SIZE: "100"
+      STREAMLIT_CLIENT_SHOW_ERROR_DETAILS: "false"
+    expose:
+      - "8501"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+      APP_USER: ${APP_USER:-admin}
+      APP_PASSWORD_HASH: ${APP_PASSWORD_HASH:?run caddy hash-password first}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

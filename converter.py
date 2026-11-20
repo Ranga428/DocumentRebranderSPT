@@ -1,10 +1,5 @@
-"""VAPT report converter: original PDF  ->  branded Word report.
+"""Legacy report converter (archived reference; not used by the new app)."""
 
-The converted sample .docx is used as the template. Fixed wording stays in the
-template; variable data (cover, dates, counts, nmap, scope, findings, TOC) is
-parsed from the original PDF. Rewritten finding text is learned from the
-template itself (title -> details/steps) and re-applied to matching titles.
-"""
 import copy
 import io
 import json
@@ -47,6 +42,7 @@ def _lines(doc):
     pages = []
     for p in doc:
         out = []
+        height = p.rect.height or 1
         for b in p.get_text("dict")["blocks"]:
             if b["type"] != 0:
                 continue
@@ -54,10 +50,16 @@ def _lines(doc):
                 t = "".join(s["text"] for s in ln["spans"]).rstrip()
                 if not t.strip():
                     continue
-                if t.strip() == company or re.fullmatch(r"Page \d+", t.strip()) \
-                        or re.fullmatch(r"www\.\S+", t.strip()) or t.strip() == "...":
+                y_mid = (ln["bbox"][1] + ln["bbox"][3]) / 2
+                if y_mid < height * 0.09 or y_mid > height * 0.91:
                     continue
-                out.append((t.strip(), ln["bbox"][1], ln["bbox"][3]))
+                stripped = t.strip()
+                if (stripped == company or re.fullmatch(r"Page \d+", stripped)
+                        or re.fullmatch(r"www\.\S+", stripped) or stripped == "..."
+                        or re.search(r"@[\w.]+", stripped)
+                        or re.search(r"\+?\d[\d\s\-()]{7,}", stripped)):
+                    continue
+                out.append((stripped, ln["bbox"][1], ln["bbox"][3]))
         out.sort(key=lambda x: x[1])
         pages.append(out)
     return pages, company
@@ -80,11 +82,23 @@ def _join(lines):
     return s.strip()
 
 
+def _looks_like_bullet(t):
+    t = t.strip()
+    if not t:
+        return False
+    if t[0] in "\u2022\u00b7\u25cf\u25cb\u25a0\u25aa\u25ba\u2023\u2043\uf0b7\uf0a7\uf076\uf0d8":
+        return True
+    if re.match(r"^[\-\*\+]\s", t):
+        return True
+    return False
+
+
 def _paras(items):
     """items: [(text,y0,y1,page)] -> paragraph strings using vertical gaps."""
     groups, cur, prev = [], [], None
     for t, y0, y1, pg in items:
-        if prev and prev[3] == pg and (y0 - prev[2]) > 0.5 * (y1 - y0):
+        if cur and (prev and prev[3] == pg and (y0 - prev[2]) > 0.5 * (y1 - y0)
+                   or _looks_like_bullet(t) or _looks_like_bullet(cur[-1])):
             groups.append(cur)
             cur = []
         cur.append(t)
@@ -98,11 +112,19 @@ def _steps(items):
     out = []
     for t, *_ in items:
         m = re.match(r"^\d+\.\s+(.*)", t)
-        if m or not out:
+        is_header = re.match(r"^(Request|Response):", t, re.I) is not None
+        is_bullet = _looks_like_bullet(t)
+        if m or is_header or is_bullet or not out:
             out.append([m.group(1) if m else t])
         else:
             out[-1].append(t)
-    return [_join(x) for x in out]
+    result = []
+    for group in out:
+        if group and (re.match(r"^(Request|Response):", group[0], re.I) or _looks_like_bullet(group[0])):
+            result.append("\n".join(group))
+        else:
+            result.append(_join(group))
+    return result
 
 
 def parse_original(pdf_bytes):
@@ -177,9 +199,10 @@ def parse_original(pdf_bytes):
                         pix = fitz.Pixmap(fitz.csRGB, pix)
                     cur["images"].append(pix.tobytes("png"))
             for t, y0, y1 in pages[pi]:
-                m = re.match(r"^Findings:\s*(\S+)\s*-\s*(\d+)", t)
+                m = re.match(r"^Findings:\s*(\S+)(?:\s*-\s*(\d+))?", t)
                 if m:
-                    cur = {"id": f"{m.group(1)} - {m.group(2)}", "cvss": "", "severity": "", "status": "",
+                    fid = m.group(1) if m.group(2) is None else f"{m.group(1)} - {m.group(2)}"
+                    cur = {"id": fid, "cvss": "", "severity": "", "status": "",
                            "title": [], "images": [], "raw": {k: [] for k in FIELD.values()}}
                     findings.append(cur)
                     field = "head"
@@ -283,6 +306,18 @@ def make_plan(rep, lib, cfg=None):
                 g[k] = list(f[k])
                 src = "copied from original - NO reworded version known, please review"
                 plan["warnings"].append(f"{f['title']}: no reworded '{k}' in the template library; original wording used.")
+            if k == "steps":
+                for orig in f[k]:
+                    if not re.match(r"^(Request|Response):", orig, re.I) or "\n" not in orig:
+                        continue
+                    replaced = False
+                    for idx, step in enumerate(g[k]):
+                        if re.match(r"^(Request|Response):", step, re.I):
+                            g[k][idx] = orig
+                            replaced = True
+                            break
+                    if not replaced:
+                        g[k].append(orig)
             plan["review"].append((f["title"], k, src))
         plan["review"].append((f["title"], "description/corrective/reference",
                                "copied" + (" with text patches" if patched else "")))
@@ -322,10 +357,14 @@ def set_text(p, text):
     for c in list(first):
         if c.tag != qn("w:rPr"):
             first.remove(c)
-    t = OxmlElement("w:t")
-    t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    t.text = text
-    first.append(t)
+    for i, chunk in enumerate(text.split("\n")):
+        if i:
+            br = OxmlElement("w:br")
+            first.append(br)
+        t = OxmlElement("w:t")
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        t.text = chunk
+        first.append(t)
 
 
 def ptext(el):
@@ -402,18 +441,23 @@ def build_docx(plan, template_bytes, update_toc=True):
         return find(lambda e: e.tag == qn("w:p") and ptext(e).startswith(prefix)
                     and (style is None or pstyle(e) == style), start)
 
-    # ---- cover / copyright
+    # ---- cover / copyright (best-effort: skip missing anchors)
     i = find(lambda e: e.tag == qn("w:p") and pstyle(e) == "Heading1" and "http" in ptext(e))
-    p = els[i]
-    rs = [r for r in _runs(p) if r.find(qn("w:t")) is not None]
-    rs[0].find(qn("w:t")).text = f"{plan['asset_label']} | "
-    rs[1].find(qn("w:t")).text = plan["url"] + " "
-    for r in rs[2:]:
-        p.remove(r)
-    set_text(els[find_text("ASSESSMENT ID")], f"ASSESSMENT ID: {plan['assessment_id']}")
-    set_text(els[find_text("Created:")], f"Created: {plan['created']}")
-    set_text(els[find_text("Reference:")], f"Reference: {plan['reference']}")
-    set_text(els[find_text("Documented By:")], f"Documented By: {plan['cfg']['documented_by']}")
+    if i is not None:
+        p = els[i]
+        rs = [r for r in _runs(p) if r.find(qn("w:t")) is not None]
+        if len(rs) >= 2:
+            rs[0].find(qn("w:t")).text = plan['asset_label'] + " | "
+            rs[1].find(qn("w:t")).text = plan["url"] + " "
+            for r in rs[2:]:
+                p.remove(r)
+    for prefix, value in (("ASSESSMENT ID", "ASSESSMENT ID: " + plan['assessment_id']),
+                          ("Created:", "Created: " + plan['created']),
+                          ("Reference:", "Reference: " + plan['reference']),
+                          ("Documented By:", "Documented By: " + plan['cfg']['documented_by'])):
+        j = find_text(prefix)
+        if j is not None:
+            set_text(els[j], value)
 
     # cover: move the lower "CONFIDENTIAL DOCUMENT" up by two lines
     conf = [e for e in els if e.tag == qn("w:p") and ptext(e) == "CONFIDENTIAL DOCUMENT"]
@@ -566,7 +610,7 @@ def build_docx(plan, template_bytes, update_toc=True):
             b = OxmlElement("w:b")
             b.set(qn("w:val"), "1")
             rpr.insert(0, b)
-        bm_name = f"_vapt_finding_{fi}"
+        bm_name = f"_finding_{fi}"
         for bs in lp[1].findall(qn("w:bookmarkStart")):
             bs.set(qn("w:name"), bm_name)
             bs.set(qn("w:id"), str(bm_id[0] + fi))
@@ -737,6 +781,12 @@ def force_font(d, font="Onest"):
 
 def render_pdf(docx_bytes):
     """Render with LibreOffice; returns pdf bytes or None."""
+    try:
+        from core import office
+        if office.available():
+            return office.to_pdf(docx_bytes, "r.docx")
+    except Exception:
+        pass
     exe = shutil.which("soffice") or shutil.which("libreoffice")
     if not exe:
         return None

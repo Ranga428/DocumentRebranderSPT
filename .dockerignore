@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+out
+samples
+*.log
+*.crt
+~$*
+SPT_Format_Landscape.docx
+SPT_Format_Portrait.docx

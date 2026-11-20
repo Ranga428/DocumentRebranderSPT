@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "font": "Onest",
+  "control_placeholder": "CONTROL#0000000",
+  "required_styles": [
+    "Normal",
+    "Title",
+    "Subtitle",
+    "Heading1",
+    "Heading2",
+    "Heading3",
+    "Table1"
+  ],
+  "templates": {
+    "landscape": {
+      "file": "SPT_Format_Landscape.docx",
+      "sha256": "8ea9927f132748e8767d273c4636851ebf02bf6403a49d43c0184c094142d26f"
+    },
+    "portrait": {
+      "file": "SPT_Format_Portrait.docx",
+      "sha256": "1302891f117da6eff7859a3a26bde6aa4c4cade3cff550523da75452f45a612f"
+    }
+  }
+}

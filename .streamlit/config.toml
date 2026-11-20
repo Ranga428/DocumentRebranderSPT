@@ -12,3 +12,10 @@ secondaryBackgroundColor = "#0C331B"
 textColor = "#F1F5F9"
 
 font = "sans serif"
+
+[server]
+maxUploadSize = 100
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
